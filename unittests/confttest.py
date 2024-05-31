@@ -25,3 +25,8 @@ def mock_clip_token_data():
 def mock_clip_layer_data():
     tensor = tf.random.uniform(shape=(32, 77, 768), minval=0, maxval=10, dtype=tf.float64)
     return tensor
+
+@pytest.fixture(scope='module')
+def mock_diffusion_time_data():
+    tensor = tf.random.uniform(shape=(1, 320))
+    return tensor

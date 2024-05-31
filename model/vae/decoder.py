@@ -1,7 +1,7 @@
 import tensorflow as tf
 import keras
 from model.utils import Swish
-from model.vae.layers import VAE_ResidualBlock, VAE_AttentionBlock
+from model.vae.blocks import VAE_ResidualBlock, VAE_AttentionBlock
 
 class VAE_Decoder(keras.Model):
     def __init__(self, latent_dim=4, **kwargs):

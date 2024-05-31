@@ -38,9 +38,47 @@ class SelfAttention(keras.layers.Layer):
         
         return output
 
-
-if __name__ == "__main__":
-    tensor = tf.random.normal(shape=(32, 32 * 32, 512))
-    attention = SelfAttention(1, 512)
-    output = attention(tensor, causal_mask=True)
-    print()
+class CrossAttention(keras.layers.Layer):
+    def __init__(self, n_heads, d_embed, d_cross, in_proj_bias=True, out_proj_bias=True):
+        super().__init__()
+        self.q_proj = keras.layers.Dense(d_embed, use_bias=in_proj_bias)
+        self.k_proj = keras.layers.Dense(d_embed, use_bias=in_proj_bias)
+        self.v_proj = keras.layers.Dense(d_embed, use_bias=in_proj_bias)
+        self.out_proj = keras.layers.Dense(d_embed, use_bias=out_proj_bias)
+        self.n_heads = n_heads
+        self.d_head = d_embed//n_heads
+        
+    def call(self, x, y):
+        # x (latent): # (Batch_Size, Seq_Len_Q, Dim_Q)
+        # y (context): # (Batch_Size, Seq_Len_KV, Dim_KV) = (Batch_Size, 77, 768)
+        
+        input_shape = x.shape
+        batch_size, sequence_length, d_embed = input_shape
+        # Divide each embedding of Q into multiple heads such that d_heads * n_heads = Dim_Q
+        interm_shape = (batch_size, -1, self.n_heads, self.d_head)
+        
+        # (Batch_Size, Seq_Len_Q, Dim_Q) -> (Batch_Size, Seq_Len_Q, Dim_Q)
+        q = self.q_proj(x)
+        # (Batch_Size, Seq_Len_KV, Dim_KV) -> (Batch_Size, Seq_Len_KV, Dim_Q)
+        k = self.k_proj(y)
+        # (Batch_Size, Seq_Len_KV, Dim_KV) -> (Batch_Size, Seq_Len_KV, Dim_Q)
+        v = self.v_proj(y)
+        # (Batch_Size, Seq_Len_Q, Dim_Q) -> (Batch_Size, Seq_Len_Q, H, Dim_Q / H) -> (Batch_Size, H, Seq_Len_Q, Dim_Q / H)
+        q = tf.transpose(tf.reshape(q, interm_shape), perm=[0, 2, 1, 3])
+        # (Batch_Size, Seq_Len_KV, Dim_Q) -> (Batch_Size, Seq_Len_KV, H, Dim_Q / H) -> (Batch_Size, H, Seq_Len_KV, Dim_Q / H)
+        k = tf.transpose(tf.reshape(k, interm_shape), perm=[0, 2, 1, 3])
+        # (Batch_Size, Seq_Len_KV, Dim_Q) -> (Batch_Size, Seq_Len_KV, H, Dim_Q / H) -> (Batch_Size, H, Seq_Len_KV, Dim_Q / H)
+        v = tf.transpose(tf.reshape(v, interm_shape), perm=[0, 2, 1, 3])
+        
+        # (Batch_Size, H, Seq_Len_Q, Dim_Q / H) @ (Batch_Size, H, Dim_Q / H, Seq_Len_KV) -> (Batch_Size, H, Seq_Len_Q, Seq_Len_KV)
+        weight = q @ tf.transpose(k, perm=[0, 1, 3, 2])
+        weight /= math.sqrt(self.d_head)
+        weight = keras.activations.softmax(weight, -1)
+        output = weight @ v
+        # (Batch_Size, H, Seq_Len_Q, Dim_Q / H) -> (Batch_Size, Seq_Len_Q, H, Dim_Q / H)
+        output = tf.transpose(output, perm=[0, 2, 1, 3])
+        # (Batch_Size, Seq_Len_Q, H, Dim_Q / H) -> (Batch_Size, Seq_Len_Q, Dim_Q)
+        output = tf.reshape(output, input_shape)
+        output = self.out_proj(output)
+        return output
+        
